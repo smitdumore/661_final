@@ -35,11 +35,6 @@ class RRT:
         self.obstacle_list = []
         self.node_list = None
 
-        for i in range(600):
-            for j in range(200):
-                if(get_inquality_obstacles(i,j,15)):
-                    self.obstacle_list.append([i,j])
-
     def distance(self, node1, node2):
         return np.sqrt((node1.x - node2.x)**2 + abs(node1.y - node2.y)**2)
 
@@ -102,6 +97,9 @@ class RRT:
             if near_node == node.parent:
                 continue
 
+            if(self.check_collision(near_node, node)):
+                continue
+            
             new_cost = node.cost + self.distance(node, near_node)
             
             if new_cost < near_node.cost:
@@ -119,7 +117,12 @@ class RRT:
 
         img = np.zeros((200, 600, 3), dtype=np.uint8)
         cv2.circle(img, (start_node.x, start_node.y), 5, (255, 0, 0), -1)
-        cv2.circle(img, (goal_node.x, goal_node.y), 5, (0, 255, 0), -1)   
+        cv2.circle(img, (goal_node.x, goal_node.y), 5, (0, 255, 0), -1)  
+
+        for i in range(600):
+            for j in range(200):
+                if(get_inquality_obstacles(i,j,15)):
+                    cv2.circle(img, (i, j), 1, (0, 255, 255), -1)
 
 
         for i in range(self.max_iter):
@@ -157,6 +160,11 @@ class RRT:
                 self.node_list.append(new_node)
                 
                 self.rewire(new_node)
+            
+            else:
+
+                new_node.parent = None
+
 
             #print(self.distance(self.goal_node, new_node))
 
@@ -192,6 +200,10 @@ class RRT:
         dx = abs(x2 - x1)
         dy = abs(y2 - y1)
         steps = max(dx, dy)
+
+        if(steps == 0):
+            return True
+
         x_step = dx / steps
         y_step = dy / steps
 
@@ -219,10 +231,10 @@ class RRT:
 
 def main():
 
-    start_x = int(30)
-    start_y = int(30)
+    start_x = int(50)
+    start_y = int(100)
 
-    goal_x = int(100)
+    goal_x = int(500)
     goal_y = int(100)
 
     clearance = int(5 + 10)
