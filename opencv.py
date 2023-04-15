@@ -6,11 +6,18 @@ tab_width = 600
 tab_height = 200
 
 
+# def get_inquality_obstacles(x, y, clearance):
+#     if (x >= (tab_width - clearance)) or (y >= (tab_height - clearance)) or (x <= clearance) or (y <= clearance) or\
+#        ((y >= 75 - clearance) and (x <= (165 + clearance)) and (x >= (150 - clearance)) and (y <= tab_height)) or\
+#        ((y <= (125 + clearance)) and (x >= (250 - clearance)) and (y >= 0) and (x <= (265 + clearance))) or\
+#         (((x-400)**2 + (y-110)**2) < (60 + clearance)**2):
+#             return True
+    
+#     return False
+
 def get_inquality_obstacles(x, y, clearance):
-    if (x >= (tab_width - clearance)) or (y >= (tab_height - clearance)) or (x <= clearance) or (y <= clearance) or\
-       ((y >= 75 - clearance) and (x <= (165 + clearance)) and (x >= (150 - clearance)) and (y <= tab_height)) or\
-       ((y <= (125 + clearance)) and (x >= (250 - clearance)) and (y >= 0) and (x <= (265 + clearance))) or\
-        (((x-400)**2 + (y-110)**2) < (60 + clearance)**2):
+    if (((x-400)**2 + (y-110)**2) < (60 + clearance)**2) or\
+        ((x-200)**2 + (y-110)**2) < (60 + clearance)**2:
             return True
     
     return False
@@ -23,15 +30,17 @@ class Node:
         self.cost = cost
 
 class RRT:
-    def __init__(self, start, goal, expand_dis= 50,
+    def __init__(self, start, goal, clearance, expand_dis= 30,
                  goal_sample_rate=10, max_iter=6000):
 
         self.start_node = start
         self.goal_node = goal
         self.expand_dis = expand_dis
-        self.rewire_rad = 100
+        self.rewire_rad = 60
         self.goal_sample_rate = goal_sample_rate
         self.max_iter = max_iter
+        self.clearance = clearance
+        self.goal_tolerance = 2
         self.obstacle_list = []
         self.node_list = None
 
@@ -73,8 +82,6 @@ class RRT:
             new_node.y = int(to_node.y)
             new_node.cost = dist
 
-        new_node.parent = from_node
-        
         return new_node
 
     def near_nodes(self, node, rad):
@@ -121,7 +128,7 @@ class RRT:
 
         for i in range(600):
             for j in range(200):
-                if(get_inquality_obstacles(i,j,15)):
+                if(get_inquality_obstacles(i,j,self.clearance)):
                     cv2.circle(img, (i, j), 1, (0, 255, 255), -1)
 
 
@@ -129,15 +136,20 @@ class RRT:
             
             rand_node = self.random_node()
 
-            if get_inquality_obstacles(rand_node.x, rand_node.y, 15):
+            if get_inquality_obstacles(rand_node.x, rand_node.y, self.clearance):
                 continue
             
             nearest_node = self.nearest(rand_node)
             
             new_node = self.steer(nearest_node, rand_node)
+
+            if get_inquality_obstacles(new_node.x, new_node.y, self.clearance):
+                continue
             
             if not self.check_collision(nearest_node, new_node):
                 #print("showing rand node")
+
+                new_node.parent = nearest_node
 
                 cv2.circle(img, (new_node.x, new_node.y), 1, (0, 0, 255), -1)
                 cv2.imshow("RRT Tree", img)
@@ -150,6 +162,10 @@ class RRT:
                 min_cost = nearest_node.cost + self.distance(nearest_node,new_node)
                 
                 for near_node in near_nodes:
+                    
+                    if self.check_collision(near_node, new_node):
+                        continue
+
                     if near_node.cost + self.distance(near_node,new_node) < min_cost:
                         node_with_min_cost = near_node
                         min_cost = near_node.cost + self.distance(near_node, new_node)
@@ -164,11 +180,12 @@ class RRT:
             else:
 
                 new_node.parent = None
+                continue
 
 
             #print(self.distance(self.goal_node, new_node))
 
-            if self.distance(self.goal_node, new_node) <= 5:
+            if self.distance(self.goal_node, new_node) <= self.goal_tolerance:
                 goal_node.parent = new_node
                 goal_node.cost = new_node.cost + self.distance(new_node, goal_node)
                 self.node_list.append(goal_node)
@@ -199,13 +216,11 @@ class RRT:
         # Discretize the line segment into points
         dx = abs(x2 - x1)
         dy = abs(y2 - y1)
-        steps = max(dx, dy)
-
-        if(steps == 0):
-            return True
-
-        x_step = dx / steps
-        y_step = dy / steps
+        
+        steps = 10
+        
+        x_step = dx // steps
+        y_step = dy // steps
 
         # Check for collision with each point on the line segment
         for i in range(int(steps) + 1):
@@ -213,7 +228,7 @@ class RRT:
             y = int(y1 + i * y_step)
 
             # Check if the point collides with any obstacles
-            if get_inquality_obstacles(x, y, 15):
+            if get_inquality_obstacles(x, y, self.clearance):
                 return True
 
         return False  # No collision
@@ -252,7 +267,7 @@ def main():
     
     start_node = Node(start_x, start_y, None, 0)
     goal_node = Node(goal_x, goal_y, None, 0)
-    obj = RRT(start_node, goal_node)
+    obj = RRT(start_node, goal_node, clearance)
 
     path = obj.search()
 
