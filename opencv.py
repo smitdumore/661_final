@@ -2,13 +2,20 @@ import numpy as np
 import math
 import cv2
 import time
+import resource
+
+# set hard limit of 2 seconds of CPU time
+hard_limit = 120
+resource.setrlimit(resource.RLIMIT_CPU, (hard_limit, hard_limit))
+
 
 tab_width = 600
 tab_height = 200
 
 def get_inquality_obstacles(x, y, clearance):
     if (((x-400)**2 + (y-110)**2) < (60 + clearance)**2) or\
-        ((x-200)**2 + (y-110)**2) < (60 + clearance)**2:
+        ((x-200)**2 + (y-110)**2) < (60 + clearance)**2 or\
+        (x >= (tab_width - clearance)) or (y >= (tab_height - clearance)) or (x <= clearance) or (y <= clearance):
             return True
     
     return False
@@ -31,36 +38,48 @@ class RRT:
         self.goal_sample_rate = goal_sample_rate
         self.max_iter = max_iter
         self.clearance = clearance
-        self.goal_tolerance = 5
+        self.goal_tolerance = 10
         self.obstacle_list = []
         self.node_list = None
-
-        self.delta = 50
-        self.c_max = 100
-        self.c_min = 0
-        self.best_cost = float('inf')
+        self.path = []
+        self.flag = False
+        self.colo = 0
         
 
     def distance(self, node1, node2):
         return np.sqrt((node1.x - node2.x)**2 + abs(node1.y - node2.y)**2)
 
- 
-    def informed_sample(self):
-    
-        if self.best_cost >= np.inf:
-            # If there is no valid path found yet, sample randomly in the entire configuration space
-            x_rand = Node(np.random.uniform(0, 600), np.random.uniform(0, 200))
+    def random_node(self):
+        rnd = Node(np.random.randint(0, 600), np.random.randint(0, 200))
+        return rnd
+
+
+    def informed_sample(self, c_max, c_min, x_center, c):
+        if c_max < float('inf'):
+            if c_min >= c_max:
+                return self.random_node()
+            r = [c_max / 2.0, math.sqrt(c_max ** 2 - c_min ** 2) / 2.0,
+                 math.sqrt(c_max ** 2 - c_min ** 2) / 2.0]
+            rl = np.diag(r)
+            x_ball = self.sample_unit_ball()
+            rnd = np.dot(np.dot(c, rl), x_ball) + x_center
+            rnd = [rnd[(0, 0)], rnd[(1, 0)]]
+            rnd_n = Node(rnd[0], rnd[1])
         else:
-            # Calculate the radius for sampling based on the current best cost and the estimated cost to the goal
-            r = self.delta * min(self.c_max, max(self.c_min, self.best_cost))
-            
-            # Sample uniformly randomly within a circle centered at the goal node with radius r
-            angle = np.random.uniform(0, 2*np.pi)
-            x = self.goal_node.x + r * np.cos(angle)
-            y = self.goal_node.y + r * np.sin(angle)
-            x_rand = Node(x, y)
-        
-        return x_rand
+            rnd_n = self.random_node()
+
+        return rnd_n
+
+    def get_path_len(self, path):
+        path_len = 0
+        for i in range(1, len(path)):
+            node1_x = path[i][0]
+            node1_y = path[i][1]
+            node2_x = path[i - 1][0]
+            node2_y = path[i - 1][1]
+            path_len += math.hypot(node1_x - node2_x, node1_y - node2_y)
+
+        return path_len
 
 
     def nearest(self, node):
@@ -95,6 +114,17 @@ class RRT:
             new_node.cost = dist
 
         return new_node
+    
+    def sample_unit_ball(self):
+        a = np.random.random()
+        b = np.random.random()
+
+        if b < a:
+            a, b = b, a
+
+        sample = (b * math.cos(2 * math.pi * a / b),
+                  b * math.sin(2 * math.pi * a / b))
+        return np.array([[sample[0]], [sample[1]], [0]])
 
     def near_nodes(self, node, rad):
         
@@ -143,10 +173,30 @@ class RRT:
                 if(get_inquality_obstacles(i,j,self.clearance)):
                     cv2.circle(img, (i, j), 1, (0, 255, 255), -1)
 
+        c_best = float('inf')
+        c_min = math.hypot(self.start_node.x - self.goal_node.y,
+                           self.start_node.y - self.goal_node.y)
+        
+        x_center = np.array([[(self.start_node.x + self.goal_node.x) / 2.0],
+                             [(self.start_node.y + self.goal_node.y) / 2.0], [0]])
+        
+        a1 = np.array([[(self.goal_node.x - self.start_node.x) / c_min],
+                       [(self.goal_node.y - self.start_node.y) / c_min], [0]])
+
+        e_theta = math.atan2(a1[1], a1[0])
+        # first column of identity matrix transposed
+        id1_t = np.array([1.0, 0.0, 0.0]).reshape(1, 3)
+        m = a1 @ id1_t
+        u, s, vh = np.linalg.svd(m, True, True)
+        c = u @ np.diag(
+            [1.0, 1.0,
+             np.linalg.det(u) * np.linalg.det(np.transpose(vh))]) @ vh
+
+
 
         for i in range(self.max_iter):
             
-            rand_node = self.informed_sample()
+            rand_node = self.informed_sample(c_best, c_min, x_center, c)
 
             if get_inquality_obstacles(rand_node.x, rand_node.y, self.clearance):
                 continue
@@ -203,21 +253,45 @@ class RRT:
                 goal_node.cost = new_node.cost + self.distance(new_node, goal_node)
                 self.node_list.append(goal_node)
                 print("FOUNDDDDDDDDDDDDDD")
-                path = self.extract_path(goal_node)
 
-                for i in range(path.shape[0] - 1):
-                    cv2.line(img, (int(path[i, 0]), int(path[i, 1])),
-                     (int(path[i + 1, 0]), int(path[i + 1, 1])),
-                     (0, 255, 0), 2)
+                temp_path = self.extract_path(goal_node)
+                temp_path_len = self.get_path_len(temp_path)
+
+                if temp_path_len < c_best:
+                    self.path = temp_path
+                    c_best = temp_path_len
+                    self.flag = True
+                    print("path found, finding optimal")
+                    print("path visualising")
+
+                    self.colo += 50
+
+                    for i in range(self.path.shape[0] - 1):
+                        cv2.line(img, (int(self.path[i, 0]), int(self.path[i, 1])),
+                        (int(self.path[i + 1, 0]), int(self.path[i + 1, 1])),
+                        (0, 50 + self.colo, 0), 2)
                     
-                cv2.imshow("RRT Tree", img)
-                cv2.waitKey(100000)
-
-                return
+                    cv2.imshow("RRT Tree", img)
+                    cv2.waitKey(10)
 
 
-        print("path not found")
+                #return
 
+
+        if(self.flag):
+            cv2.imshow("RRT Tree", img)
+            cv2.waitKey(100000)
+            # print("path visualising")
+            # for i in range(self.path.shape[0] - 1):
+            #         cv2.line(img, (int(self.path[i, 0]), int(self.path[i, 1])),
+            #          (int(self.path[i + 1, 0]), int(self.path[i + 1, 1])),
+            #          (0, 255, 0), 2)
+                    
+            # cv2.imshow("RRT Tree", img)
+            # cv2.waitKey(100000)
+
+        #else:
+        #    print("iter finished")
         return None
         
     def check_collision(self, nearest_node, new_node):
@@ -247,15 +321,23 @@ class RRT:
 
         return False  # No collision
 
-
     def extract_path(self, goal_node):
+
+        print("extracting path")
         path = []
         node = goal_node
-        while node is not None:
+        visited = set()  # set of visited nodes
+        while node is not None and node.parent is not None:
+            if node in visited:
+                print("Error: Found a loop in the graph!")
+                return np.array([])
+            visited.add(node)
             path.append([node.x, node.y])
             node = node.parent
+        path.append([node.x, node.y])  # add last node
         path.reverse()
         return np.array(path)
+
 
 
 def main():
