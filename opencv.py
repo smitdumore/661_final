@@ -1,19 +1,10 @@
 import numpy as np
 import math
 import cv2
+import time
 
 tab_width = 600
 tab_height = 200
-
-
-# def get_inquality_obstacles(x, y, clearance):
-#     if (x >= (tab_width - clearance)) or (y >= (tab_height - clearance)) or (x <= clearance) or (y <= clearance) or\
-#        ((y >= 75 - clearance) and (x <= (165 + clearance)) and (x >= (150 - clearance)) and (y <= tab_height)) or\
-#        ((y <= (125 + clearance)) and (x >= (250 - clearance)) and (y >= 0) and (x <= (265 + clearance))) or\
-#         (((x-400)**2 + (y-110)**2) < (60 + clearance)**2):
-#             return True
-    
-#     return False
 
 def get_inquality_obstacles(x, y, clearance):
     if (((x-400)**2 + (y-110)**2) < (60 + clearance)**2) or\
@@ -40,16 +31,37 @@ class RRT:
         self.goal_sample_rate = goal_sample_rate
         self.max_iter = max_iter
         self.clearance = clearance
-        self.goal_tolerance = 2
+        self.goal_tolerance = 5
         self.obstacle_list = []
         self.node_list = None
+
+        self.delta = 50
+        self.c_max = 100
+        self.c_min = 0
+        self.best_cost = float('inf')
+        
 
     def distance(self, node1, node2):
         return np.sqrt((node1.x - node2.x)**2 + abs(node1.y - node2.y)**2)
 
-    def random_node(self):
-        rnd = Node(np.random.randint(0, 600), np.random.randint(0, 200))
-        return rnd
+ 
+    def informed_sample(self):
+    
+        if self.best_cost >= np.inf:
+            # If there is no valid path found yet, sample randomly in the entire configuration space
+            x_rand = Node(np.random.uniform(0, 600), np.random.uniform(0, 200))
+        else:
+            # Calculate the radius for sampling based on the current best cost and the estimated cost to the goal
+            r = self.delta * min(self.c_max, max(self.c_min, self.best_cost))
+            
+            # Sample uniformly randomly within a circle centered at the goal node with radius r
+            angle = np.random.uniform(0, 2*np.pi)
+            x = self.goal_node.x + r * np.cos(angle)
+            y = self.goal_node.y + r * np.sin(angle)
+            x_rand = Node(x, y)
+        
+        return x_rand
+
 
     def nearest(self, node):
         nearest_node = None
@@ -134,7 +146,7 @@ class RRT:
 
         for i in range(self.max_iter):
             
-            rand_node = self.random_node()
+            rand_node = self.informed_sample()
 
             if get_inquality_obstacles(rand_node.x, rand_node.y, self.clearance):
                 continue
@@ -152,6 +164,7 @@ class RRT:
                 new_node.parent = nearest_node
 
                 cv2.circle(img, (new_node.x, new_node.y), 1, (0, 0, 255), -1)
+                #time.sleep(2)
                 cv2.imshow("RRT Tree", img)
                 cv2.waitKey(10)
 
@@ -203,6 +216,7 @@ class RRT:
                 return
 
 
+        print("path not found")
 
         return None
         
