@@ -11,12 +11,20 @@ resource.setrlimit(resource.RLIMIT_CPU, (hard_limit, hard_limit))
 tab_width = 600
 tab_height = 200
 
-def get_inquality_obstacles(x, y, clearance):
-    if (((x-400)**2 + (y-80)**2) < (5 + clearance)**2) or\
-        ((x-200)**2 + (y-140)**2) < (5 + clearance)**2 or\
-        (x >= (tab_width - clearance)) or (y >= (tab_height - clearance)) or (x <= clearance) or (y <= clearance):
-            return True
+# def get_inquality_obstacles(x, y, clearance):
+#     if (((x-400)**2 + (y-80)**2) < (5 + clearance)**2) or\
+#         ((x-200)**2 + (y-140)**2) < (5 + clearance)**2 or\
+#         (x >= (tab_width - clearance)) or (y >= (tab_height - clearance)) or (x <= clearance) or (y <= clearance):
+#             return True
     
+#     return False
+
+def get_inquality_obstacles(x, y, clearance):
+    if (x >= (tab_width - clearance)) or (y >= (tab_height - clearance)) or (x <= clearance) or (y <= clearance) or\
+       ((y >= 75 - clearance) and (x <= (165 + clearance)) and (x >= (150 - clearance)) and (y <= tab_height)) or\
+       ((y <= (125 + clearance)) and (x >= (250 - clearance)) and (y >= 0) and (x <= (265 + clearance))) or\
+        (((x-400)**2 + (y-110)**2) < (60 + clearance)**2):
+            return True
     return False
 
 class Node:
@@ -28,7 +36,7 @@ class Node:
 
 class RRT:
     def __init__(self, start, goal, clearance, expand_dis= 30,
-                 goal_sample_rate=10, max_iter=6000):
+                 goal_sample_rate=10, max_iter = 6000):
 
         self.start_node = start
         self.goal_node = goal
@@ -53,28 +61,20 @@ class RRT:
         return rnd
 
     def informed_sample(self, c_max, c_min, x_center, c):
-        if c_max < float('inf'):
-            
-            val = abs(c_max ** 2 - c_min ** 2)
+        
+        if c_max == float('inf'):
+            return self.random_node()
 
-            r = [c_max / 2.0, math.sqrt(val) / 2.0,
-                 math.sqrt(val) / 2.0]
-            
-            rl = np.diag(r)
-            
-            x_ball = self.sample_unit_ball()
-            
-            rnd = np.dot(np.dot(c, rl), x_ball) + x_center
-            
-            rnd = [rnd[(0, 0)], rnd[(1, 0)]]
-            
-            rnd_n = Node(rnd[0], rnd[1])
+        r = [c_max / 2.0, math.sqrt(abs(c_max ** 2 - c_min ** 2)) / 4.0, 
+            math.sqrt(abs(c_max ** 2 - c_min ** 2)) / 4.0]
 
-        else:
-            
-            rnd_n = self.random_node()
 
-        return rnd_n
+        ####### CHANGE THIS
+        rnd = np.dot(np.dot(c, np.diag(r)), self.sample_unit_ball()) + x_center
+
+        return Node(rnd[0][0], rnd[1][0])
+
+
 
     def get_path_len(self, path):
         path_len = 0
@@ -121,13 +121,11 @@ class RRT:
 
         return new_node
     
+    ####### CHANGE THIS
     def sample_unit_ball(self):
         
         a = np.random.random()
         b = np.random.random()
-
-        if b < a:
-            a, b = b, a
 
         sample = (b * math.cos(2 * math.pi * a / b),
                   b * math.sin(2 * math.pi * a / b))
@@ -170,7 +168,6 @@ class RRT:
                 cv2.line(img, (near_node.x, near_node.y),(node.parent.x, node.parent.y),(255, 0, 0), 1)
 
 
-
     def search(self):
 
         self.node_list = []
@@ -194,28 +191,18 @@ class RRT:
 
         c_best = float('inf')
         
-        c_min = math.hypot(self.start_node.x - self.goal_node.y,
-                           self.start_node.y - self.goal_node.y)
-        
         x_center = np.array([[(self.start_node.x + self.goal_node.x) / 2.0],
                              [(self.start_node.y + self.goal_node.y) / 2.0], [0]])
         
-        a1 = np.array([[(self.goal_node.x - self.start_node.x) / c_min],
-                       [(self.goal_node.y - self.start_node.y) / c_min], [0]])
-
-
-        e_theta = math.atan2(a1[1], a1[0])
+        c_min = math.hypot(self.start_node.x - self.goal_node.y, self.start_node.y - self.goal_node.y)
         
-        # first column of identity matrix transposed
-        id1_t = np.array([1.0, 0.0, 0.0]).reshape(1, 3)
-
-        m = a1 @ id1_t
+        a1 = np.array([[(self.goal_node.x - self.start_node.x) / c_min], [(self.goal_node.y - self.start_node.y) / c_min], [0]])
         
-        u, s, vh = np.linalg.svd(m, True, True)
+        e_theta = math.atan2(a1[1], a1[0])  
         
-        c = u @ np.diag(
-            [1.0, 1.0,
-             np.linalg.det(u) * np.linalg.det(np.transpose(vh))]) @ vh
+        _, _, vh = np.linalg.svd(a1.T)
+        
+        c = vh.T @ np.diag([1.0, 1.0, np.linalg.det(vh)]) @ vh
 
         ##################
         #### RRT LOOP ####
@@ -272,8 +259,6 @@ class RRT:
                 continue
 
 
-            #print(self.distance(self.goal_node, new_node))
-
             if self.distance(self.goal_node, new_node) <= self.goal_tolerance:
                 goal_node.parent = new_node
                 goal_node.cost = new_node.cost + self.distance(new_node, goal_node)
@@ -294,8 +279,11 @@ class RRT:
                     self.plot_ellipse(img, x_center, c_best, c_min, e_theta)
 
                 if temp_path_len < c_best:
+
                     self.path = temp_path
+                    
                     c_best = abs(temp_path_len)
+                    
                     self.flag = True
                     print("path found, finding optimal")
                     print("path visualising")
@@ -306,40 +294,83 @@ class RRT:
                         cv2.line(img, (int(self.path[i, 0]), int(self.path[i, 1])),
                         (int(self.path[i + 1, 0]), int(self.path[i + 1, 1])),
                         (0, 50 + self.colo, 0), 2)
+
+                    img_new = np.zeros((200, 600, 3), dtype=np.uint8)
+
+                    for i in range(600):
+                        for j in range(200):
+                            if(get_inquality_obstacles(i,j,self.clearance)):
+                                cv2.circle(img_new, (i, j), 1, (0, 255, 255), -1)
+
+                    for i in range(self.path.shape[0] - 1):
+                        cv2.line(img_new, (int(self.path[i, 0]), int(self.path[i, 1])),
+                        (int(self.path[i + 1, 0]), int(self.path[i + 1, 1])),
+                        (0, 255, 0), 2)
+
+                    cv2.imshow("RRT Tree new", img_new)
+                    cv2.waitKey(10)
+
                     
                     cv2.imshow("RRT Tree", img)
                     cv2.waitKey(10)
 
-
+        
+        ## for ends
 
         if(self.flag):
-            cv2.imshow("RRT Tree", img)
-            cv2.waitKey(100)
+            
+            # cv2.destroyAllWindows()
+            # img_new = np.zeros((200, 600, 3), dtype=np.uint8)
+
+            # for i in range(600):
+            #     for j in range(200):
+            #         if(get_inquality_obstacles(i,j,self.clearance)):
+            #             cv2.circle(img_new, (i, j), 1, (0, 255, 255), -1)
+
+            # for i in range(self.path.shape[0] - 1):
+            #     cv2.line(img_new, (int(self.path[i, 0]), int(self.path[i, 1])),
+            #     (int(self.path[i + 1, 0]), int(self.path[i + 1, 1])),
+            #     (0, 255, 0), 2)
+
+            # cv2.imshow("RRT Tree new", img_new)
+            # cv2.waitKey(10000)
+            cv2.destroyAllWindows()
 
         return self.path
     
-    def rot_mat_2d(self, theta):
-        c, s = np.cos(theta), np.sin(theta)
-        return np.array([[c, -s], [s, c]])
+    def rotation_matrix(self, theta):
+        cos_theta, sin_theta = np.cos(theta), np.sin(theta)
+        
+        rotation_matrix = np.array([[cos_theta, -sin_theta],
+                                    [sin_theta, cos_theta]])
+        
+        return rotation_matrix
     
-    def plot_ellipse(self,canvas, x_center, c_best, c_min, e_theta):
+    ####### CHANGE THIS
+    def plot_ellipse(self, canvas, x_center, c_best, c_min, e_theta):
 
-        val = abs(c_best ** 2 - c_min ** 2)
+        val = abs(c_best ** 2 - c_min ** 2) / 4.0
+
         a = math.sqrt(val) / 2.0
+
         b = c_best / 2.0
+        
         angle = math.pi / 2.0 - e_theta
+        
         cx = int(x_center[0])
         cy = int(x_center[1])
+        
         t = np.arange(0, 2 * math.pi + 0.1, 0.1)
-        x = [a * math.cos(it) for it in t]
-        y = [b * math.sin(it) for it in t]
-        fx = self.rot_mat_2d(-angle) @ np.array([x, y])
-        px = np.array(fx[0, :] + cx).flatten()
-        py = np.array(fx[1, :] + cy).flatten()
-        # assuming 'canvas' is your OpenCV image, use cv2.polylines to draw the ellipse
-        pts = np.array(list(zip(px, py)), np.int32)
-        pts = pts.reshape((-1,1,2))
-        cv2.polylines(canvas,[pts],True,(255,255,255))
+        
+        x = a * np.cos(t)
+        y = b * np.sin(t)
+        
+        fx, fy = self.rotation_matrix(-angle) @ np.array([x, y])
+        
+        px = np.round(fx + cx).astype(np.int32)
+        py = np.round(fy + cy).astype(np.int32)
+        pts = np.array(list(zip(px, py)), dtype=np.int32)
+        cv2.polylines(canvas, [pts], True, (255, 255, 255))
 
         
     def check_collision(self, nearest_node, new_node):
@@ -348,10 +379,6 @@ class RRT:
         """
         x1, y1 = nearest_node.x, nearest_node.y
         x2, y2 = new_node.x, new_node.y
-
-        # Discretize the line segment into points
-        #dx = abs(x2 - x1)
-        #dy = abs(y2 - y1)
 
         dx = math.ceil(x2 - x1)
         dy = math.ceil(y2 - y1)
@@ -363,8 +390,6 @@ class RRT:
 
         # Check for collision with each point on the line segment
         for i in range(int(steps) + 1):
-            #x = int(x1 + i * x_step)
-            #y = int(y1 + i * y_step)
 
             x = math.ceil(x1 + i * x_step)
             y = math.ceil(y1 + i * y_step)
@@ -396,10 +421,10 @@ class RRT:
 
 def IRRT_main():
 
-    start_x = int(251)
+    start_x = int(50)
     start_y = int(100)
 
-    goal_x = int(50)
+    goal_x = int(500)
     goal_y = int(100)
 
     clearance = int(15)
@@ -421,4 +446,4 @@ def IRRT_main():
     return path
 
 
-print(IRRT_main())
+#print(IRRT_main())
