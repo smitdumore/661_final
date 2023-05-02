@@ -11,14 +11,6 @@ resource.setrlimit(resource.RLIMIT_CPU, (hard_limit, hard_limit))
 tab_width = 600
 tab_height = 200
 
-# def get_inquality_obstacles(x, y, clearance):
-#     if (((x-400)**2 + (y-80)**2) < (5 + clearance)**2) or\
-#         ((x-200)**2 + (y-140)**2) < (5 + clearance)**2 or\
-#         (x >= (tab_width - clearance)) or (y >= (tab_height - clearance)) or (x <= clearance) or (y <= clearance):
-#             return True
-    
-#     return False
-
 def get_inquality_obstacles(x, y, clearance):
     if (x >= (tab_width - clearance)) or (y >= (tab_height - clearance)) or (x <= clearance) or (y <= clearance) or\
        ((y >= 75 - clearance) and (x <= (165 + clearance)) and (x >= (150 - clearance)) and (y <= tab_height)) or\
@@ -68,9 +60,23 @@ class RRT:
         r = [c_max / 2.0, math.sqrt(abs(c_max ** 2 - c_min ** 2)) / 4.0, 
             math.sqrt(abs(c_max ** 2 - c_min ** 2)) / 4.0]
 
+        r_array = np.array([[r[0], 0.0, 0.0], 
+                    [0.0, r[1], 0.0], 
+                    [0.0, 0.0, r[2]]])
 
-        ####### CHANGE THIS
-        rnd = np.dot(np.dot(c, np.diag(r)), self.sample_unit_ball()) + x_center
+        a = np.random.random()
+        b = np.random.random()
+
+        sample = (b * math.cos(2 * math.pi * a / b),
+                b * math.sin(2 * math.pi * a / b))
+
+        unit_ball_sample = np.array([[sample[0]], [sample[1]], [0]])
+
+        term_1 = np.matmul(c, r_array)
+
+        term_2 = np.matmul(term_1, unit_ball_sample)
+
+        rnd = term_2 + x_center
 
         return Node(rnd[0][0], rnd[1][0])
 
@@ -121,16 +127,6 @@ class RRT:
 
         return new_node
     
-    ####### CHANGE THIS
-    def sample_unit_ball(self):
-        
-        a = np.random.random()
-        b = np.random.random()
-
-        sample = (b * math.cos(2 * math.pi * a / b),
-                  b * math.sin(2 * math.pi * a / b))
-        
-        return np.array([[sample[0]], [sample[1]], [0]])
 
     def near_nodes(self, node, rad):
         
@@ -318,22 +314,6 @@ class RRT:
         ## for ends
 
         if(self.flag):
-            
-            # cv2.destroyAllWindows()
-            # img_new = np.zeros((200, 600, 3), dtype=np.uint8)
-
-            # for i in range(600):
-            #     for j in range(200):
-            #         if(get_inquality_obstacles(i,j,self.clearance)):
-            #             cv2.circle(img_new, (i, j), 1, (0, 255, 255), -1)
-
-            # for i in range(self.path.shape[0] - 1):
-            #     cv2.line(img_new, (int(self.path[i, 0]), int(self.path[i, 1])),
-            #     (int(self.path[i + 1, 0]), int(self.path[i + 1, 1])),
-            #     (0, 255, 0), 2)
-
-            # cv2.imshow("RRT Tree new", img_new)
-            # cv2.waitKey(10000)
             cv2.destroyAllWindows()
 
         return self.path
@@ -345,8 +325,7 @@ class RRT:
                                     [sin_theta, cos_theta]])
         
         return rotation_matrix
-    
-    ####### CHANGE THIS
+
     def plot_ellipse(self, canvas, x_center, c_best, c_min, e_theta):
 
         val = abs(c_best ** 2 - c_min ** 2) / 4.0
@@ -354,23 +333,44 @@ class RRT:
         a = math.sqrt(val) / 2.0
 
         b = c_best / 2.0
-        
+
         angle = math.pi / 2.0 - e_theta
-        
+
         cx = int(x_center[0])
         cy = int(x_center[1])
-        
-        t = np.arange(0, 2 * math.pi + 0.1, 0.1)
-        
-        x = a * np.cos(t)
-        y = b * np.sin(t)
-        
-        fx, fy = self.rotation_matrix(-angle) @ np.array([x, y])
-        
-        px = np.round(fx + cx).astype(np.int32)
-        py = np.round(fy + cy).astype(np.int32)
-        pts = np.array(list(zip(px, py)), dtype=np.int32)
+
+        t = []
+        x = []
+        y = []
+
+        for i in range(int(20 * math.pi)):
+            x.append(a * math.cos(i/10.0))
+            y.append(b * math.sin(i/10.0))
+            
+
+        fx = []
+        fy = []
+
+        for i in range(len(x)):
+            fx.append(x[i] * math.cos(angle) - y[i] * math.sin(angle))
+            fy.append(x[i] * math.sin(angle) + y[i] * math.cos(angle))
+
+        px = []
+        py = []
+
+        for i in range(len(fx)):
+            px.append(int(round(fx[i] + cx)))
+            py.append(int(round(fy[i] + cy)))
+
+        pts = []
+
+        for i in range(len(px)):
+            pts.append((px[i], py[i]))
+
+        pts = np.array(pts)
+
         cv2.polylines(canvas, [pts], True, (255, 255, 255))
+
 
         
     def check_collision(self, nearest_node, new_node):
@@ -409,7 +409,8 @@ class RRT:
         while node is not None and node.parent is not None:
             if node in visited:
                 print("Error: Found a loop in the graph!")
-                return np.array([])
+                return self.path
+                # return IRRT_main()
             visited.add(node)
             path.append([node.x, node.y])
             node = node.parent
@@ -417,14 +418,14 @@ class RRT:
         path.reverse()
         return np.array(path)
 
-
+######## CHANGE VARIABLE NAMES
 
 def IRRT_main():
 
-    start_x = int(50)
+    start_x = int(500)
     start_y = int(100)
 
-    goal_x = int(500)
+    goal_x = int(50)
     goal_y = int(100)
 
     clearance = int(15)
@@ -446,4 +447,4 @@ def IRRT_main():
     return path
 
 
-#print(IRRT_main())
+print(IRRT_main())
