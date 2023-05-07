@@ -4,7 +4,7 @@ import numpy as np
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
 import math
-from opencv import IRRT_main
+from planner_class import IRRT_main
 import tf.transformations as tf
 from tf.transformations import euler_from_quaternion as convert_ang
 

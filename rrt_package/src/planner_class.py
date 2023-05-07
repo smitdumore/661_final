@@ -11,11 +11,16 @@ resource.setrlimit(resource.RLIMIT_CPU, (hard_limit, hard_limit))
 tab_width = 600
 tab_height = 200
 
+# def get_inquality_obstacles(x, y, clearance):
+#     if (x >= (tab_width - clearance)) or (y >= (tab_height - clearance)) or (x <= clearance) or (y <= clearance) or\
+#        ((y >= 75 - clearance) and (x <= (165 + clearance)) and (x >= (150 - clearance)) and (y <= tab_height)) or\
+#        ((y <= (125 + clearance)) and (x >= (250 - clearance)) and (y >= 0) and (x <= (265 + clearance))) or\
+#         (((x-400)**2 + (y-110)**2) < (60 + clearance)**2):
+#             return True
+#     return False
+
 def get_inquality_obstacles(x, y, clearance):
-    if (x >= (tab_width - clearance)) or (y >= (tab_height - clearance)) or (x <= clearance) or (y <= clearance) or\
-       ((y >= 75 - clearance) and (x <= (165 + clearance)) and (x >= (150 - clearance)) and (y <= tab_height)) or\
-       ((y <= (125 + clearance)) and (x >= (250 - clearance)) and (y >= 0) and (x <= (265 + clearance))) or\
-        (((x-400)**2 + (y-110)**2) < (60 + clearance)**2):
+    if (x >= (tab_width - clearance)) or (y >= (tab_height - clearance)) or (x <= clearance) or (y <= clearance):
             return True
     return False
 
@@ -27,19 +32,17 @@ class Node:
         self.cost = cost
 
 class RRT:
-    def __init__(self, start, goal, clearance, expand_dis= 30,
-                 goal_sample_rate=10, max_iter = 6000):
+    def __init__(self, start, goal, clearance):
 
         self.start_node = start
         self.goal_node = goal
-        self.expand_dis = expand_dis
-        self.rewire_rad = 60
-        self.goal_sample_rate = goal_sample_rate
-        self.max_iter = max_iter
         self.clearance = clearance
         self.goal_tolerance = 15
-        self.obstacle_list = []
-        self.node_list = None
+
+        self.steer_len = 30
+        self.rewire_rad = 60
+        
+        self.tree = None
         self.path = []
         self.flag = False
         self.colo = 100
@@ -52,53 +55,45 @@ class RRT:
         rnd = Node(np.random.randint(0, 600), np.random.randint(0, 200))
         return rnd
 
-    def informed_sample(self, c_max, c_min, x_center, c):
+    def gen_biased_nodes(self, major_axis, focal_dist, origin, rot):
         
-        if c_max == float('inf'):
+        # if major_axis == float('inf'):
             return self.random_node()
+        
+        # x = np.random.random()
+        # y = np.random.random()
 
-        r = [c_max / 2.0, math.sqrt(abs(c_max ** 2 - c_min ** 2)) / 4.0, 
-            math.sqrt(abs(c_max ** 2 - c_min ** 2)) / 4.0]
+        # minor_axis = [major_axis / 2.0, math.sqrt(abs(major_axis ** 2 - focal_dist ** 2)) / 4.0, 
+        #     math.sqrt(abs(major_axis ** 2 - focal_dist ** 2)) / 4.0]
 
-        r_array = np.array([[r[0], 0.0, 0.0], 
-                    [0.0, r[1], 0.0], 
-                    [0.0, 0.0, r[2]]])
+        # r_array = np.array([[minor_axis[0], 0.0, 0.0], 
+        #                     [0.0, minor_axis[1], 0.0], 
+        #                     [0.0, 0.0, minor_axis[2]]])
 
-        a = np.random.random()
-        b = np.random.random()
+        
+        # new_node = (y * math.cos(2 * math.pi * x / y),
+        #         y * math.sin(2 * math.pi * x / y))
 
-        sample = (b * math.cos(2 * math.pi * a / b),
-                b * math.sin(2 * math.pi * a / b))
+        # threeD_pt = np.array([[new_node[0]], [new_node[1]], [0]])
 
-        unit_ball_sample = np.array([[sample[0]], [sample[1]], [0]])
+        # term_1 = np.matmul(rot, r_array)
+        # term_2 = np.matmul(term_1, threeD_pt)
 
-        term_1 = np.matmul(c, r_array)
+        # new_point = term_2 + origin
 
-        term_2 = np.matmul(term_1, unit_ball_sample)
-
-        rnd = term_2 + x_center
-
-        return Node(rnd[0][0], rnd[1][0])
-
-
-
+        # return Node(new_point[0][0], new_point[1][0])
+    
     def get_path_len(self, path):
-        path_len = 0
-        for i in range(1, len(path)):
-            node1_x = path[i][0]
-            node1_y = path[i][1]
-            node2_x = path[i - 1][0]
-            node2_y = path[i - 1][1]
-            path_len += math.hypot(node1_x - node2_x, node1_y - node2_y)
-
+        path = np.array(path)
+        path_diff = np.diff(path, axis=0)
+        path_len = np.sum(np.sqrt(np.sum(path_diff ** 2, axis=1)))
         return int(path_len)
-
 
     def nearest(self, node):
         nearest_node = None
         nearest_dist = np.inf
         
-        for n in self.node_list:
+        for n in self.tree:
             dist = self.distance(n, node)
             if dist < nearest_dist:
                 nearest_dist = dist
@@ -115,11 +110,11 @@ class RRT:
         
         dist = self.distance(from_node, to_node)
 
-        if dist > self.expand_dis:
+        if dist > self.steer_len:
             theta = math.atan2(to_node.y - from_node.y, to_node.x - from_node.x)
-            new_node.x = int(from_node.x + self.expand_dis * math.cos(theta))
-            new_node.y = int(from_node.y + self.expand_dis * math.sin(theta))
-            new_node.cost = self.expand_dis
+            new_node.x = int(from_node.x + self.steer_len * math.cos(theta))
+            new_node.y = int(from_node.y + self.steer_len * math.sin(theta))
+            new_node.cost = self.steer_len
         else:
             new_node.x = int(to_node.x)
             new_node.y = int(to_node.y)
@@ -127,13 +122,12 @@ class RRT:
 
         return new_node
     
-
     def near_nodes(self, node, rad):
         
         near_nodes = []
 
         # node_list is the tree itself
-        for n in self.node_list:
+        for n in self.tree:
             if self.distance(n, node) < rad:
                 near_nodes.append(n)
         return near_nodes
@@ -158,20 +152,28 @@ class RRT:
                 near_node.parent = node
                 near_node.cost = new_cost
                 ## erase
-                cv2.line(img, (node.x, node.y),(node.parent.x, node.parent.y),(0, 0, 0), 1)
+                #cv2.line(img, (node.x, node.y),(node.parent.x, node.parent.y),(0, 0, 0), 1)
 
                 ## draw new
-                cv2.line(img, (near_node.x, near_node.y),(node.parent.x, node.parent.y),(255, 0, 0), 1)
+                #cv2.line(img, (near_node.x, near_node.y),(node.parent.x, node.parent.y),(255, 0, 0), 1)
 
+    def func(self, a1):
+        orientation_ellipse = math.atan2(a1[1], a1[0])  
+        
+        _, _, vh = np.linalg.svd(a1.T)
+        
+        c = vh.T @ np.diag([1.0, 1.0, np.linalg.det(vh)]) @ vh
+
+        return orientation_ellipse, c
 
     def search(self):
 
-        self.node_list = []
+        self.tree = []
         
         start_node = self.start_node
         goal_node = self.goal_node
         
-        self.node_list.append(start_node)
+        self.tree.append(start_node)
 
         ### CANVAS ###
         img = np.zeros((200, 600, 3), dtype=np.uint8)
@@ -185,27 +187,23 @@ class RRT:
                 if(get_inquality_obstacles(i,j,self.clearance)):
                     cv2.circle(img, (i, j), 1, (0, 255, 255), -1)
 
-        c_best = float('inf')
+        major_axis = float('inf')
         
-        x_center = np.array([[(self.start_node.x + self.goal_node.x) / 2.0],
+        origin = np.array([[(self.start_node.x + self.goal_node.x) / 2.0],
                              [(self.start_node.y + self.goal_node.y) / 2.0], [0]])
         
-        c_min = math.hypot(self.start_node.x - self.goal_node.y, self.start_node.y - self.goal_node.y)
+        minor_axis = math.hypot(self.start_node.x - self.goal_node.y, self.start_node.y - self.goal_node.y)
         
-        a1 = np.array([[(self.goal_node.x - self.start_node.x) / c_min], [(self.goal_node.y - self.start_node.y) / c_min], [0]])
+        a1 = np.array([[(self.goal_node.x - self.start_node.x) / minor_axis], [(self.goal_node.y - self.start_node.y) / minor_axis], [0]])
         
-        e_theta = math.atan2(a1[1], a1[0])  
-        
-        _, _, vh = np.linalg.svd(a1.T)
-        
-        c = vh.T @ np.diag([1.0, 1.0, np.linalg.det(vh)]) @ vh
+        orientation_ellipse, c = self.func(a1)
 
         ##################
         #### RRT LOOP ####
         ##################
-        for i in range(self.max_iter):
+        for i in range(3000):
 
-            rand_node = self.informed_sample(c_best, c_min, x_center, c)
+            rand_node = self.gen_biased_nodes(major_axis, minor_axis, origin, c)
 
             if get_inquality_obstacles(rand_node.x, rand_node.y, self.clearance):
                 continue
@@ -222,12 +220,12 @@ class RRT:
 
                 new_node.parent = nearest_node
                 
-                cv2.line(img, (nearest_node.x, nearest_node.y),(new_node.x, new_node.y),(55, 0, 0), 1)
+                cv2.line(img, (nearest_node.x, nearest_node.y),(new_node.x, new_node.y),(255, 0, 0), 1)
                 cv2.circle(img, (new_node.x, new_node.y), 1, (0, 0, 255), -1)
                 cv2.imshow("RRT Tree", img)
                 cv2.waitKey(10)
 
-                near_nodes = self.near_nodes(new_node, self.expand_dis)
+                near_nodes = self.near_nodes(new_node, self.steer_len)
                 
                 # find cheapest parent for new node
                 node_with_min_cost = nearest_node
@@ -245,7 +243,7 @@ class RRT:
                 new_node.parent = node_with_min_cost
                 new_node.cost = min_cost
 
-                self.node_list.append(new_node)
+                self.tree.append(new_node)
                 
                 self.rewire(new_node, img)
             
@@ -258,13 +256,13 @@ class RRT:
             if self.distance(self.goal_node, new_node) <= self.goal_tolerance:
                 goal_node.parent = new_node
                 goal_node.cost = new_node.cost + self.distance(new_node, goal_node)
-                self.node_list.append(goal_node)
+                self.tree.append(goal_node)
                 print("FOUNDDDDDDDDDDDDDD")
 
                 temp_path = self.extract_path(goal_node)
                 temp_path_len = self.get_path_len(temp_path)
 
-                if c_best != float('inf'):
+                if major_axis != float('inf'):
                     print("plotting ellipse...................")
                     
                     for i in range(600):
@@ -272,13 +270,13 @@ class RRT:
                             if(get_inquality_obstacles(i,j,self.clearance)):
                                 cv2.circle(img, (i, j), 1, (0, 255, 255), -1)
 
-                    self.plot_ellipse(img, x_center, c_best, c_min, e_theta)
+                    #self.draw_region(img, origin, major_axis, minor_axis, orientation_ellipse)
 
-                if temp_path_len < c_best:
+                if temp_path_len < major_axis:
 
                     self.path = temp_path
                     
-                    c_best = abs(temp_path_len)
+                    major_axis = abs(temp_path_len)
                     
                     self.flag = True
                     print("path found, finding optimal")
@@ -326,18 +324,18 @@ class RRT:
         
         return rotation_matrix
 
-    def plot_ellipse(self, canvas, x_center, c_best, c_min, e_theta):
+    def draw_region(self, canvas, origin, major_axis, focal_dis, orientation_ellipse):
 
-        val = abs(c_best ** 2 - c_min ** 2) / 4.0
+        minor_axis = abs(major_axis ** 2 - focal_dis ** 2) / 4.0
 
-        a = math.sqrt(val) / 2.0
+        a = math.sqrt(minor_axis) / 2.0
 
-        b = c_best / 2.0
+        b = major_axis / 2.0
 
-        angle = math.pi / 2.0 - e_theta
+        angle = math.pi / 2.0 - orientation_ellipse
 
-        cx = int(x_center[0])
-        cy = int(x_center[1])
+        cx = int(origin[0])
+        cy = int(origin[1])
 
         t = []
         x = []
@@ -422,10 +420,10 @@ class RRT:
 
 def IRRT_main():
 
-    start_x = int(500)
+    start_x = int(150)
     start_y = int(100)
 
-    goal_x = int(50)
+    goal_x = int(400)
     goal_y = int(100)
 
     clearance = int(15)
