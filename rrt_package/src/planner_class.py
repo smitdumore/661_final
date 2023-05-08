@@ -11,18 +11,18 @@ resource.setrlimit(resource.RLIMIT_CPU, (hard_limit, hard_limit))
 tab_width = 600
 tab_height = 200
 
-# def get_inquality_obstacles(x, y, clearance):
-#     if (x >= (tab_width - clearance)) or (y >= (tab_height - clearance)) or (x <= clearance) or (y <= clearance) or\
-#        ((y >= 75 - clearance) and (x <= (165 + clearance)) and (x >= (150 - clearance)) and (y <= tab_height)) or\
-#        ((y <= (125 + clearance)) and (x >= (250 - clearance)) and (y >= 0) and (x <= (265 + clearance))) or\
-#         (((x-400)**2 + (y-110)**2) < (60 + clearance)**2):
-#             return True
-#     return False
-
 def get_inquality_obstacles(x, y, clearance):
-    if (x >= (tab_width - clearance)) or (y >= (tab_height - clearance)) or (x <= clearance) or (y <= clearance):
+    if (x >= (tab_width - clearance)) or (y >= (tab_height - clearance)) or (x <= clearance) or (y <= clearance) or\
+       ((y >= 75 - clearance) and (x <= (165 + clearance)) and (x >= (150 - clearance)) and (y <= tab_height)) or\
+       ((y <= (125 + clearance)) and (x >= (250 - clearance)) and (y >= 0) and (x <= (265 + clearance))) or\
+        (((x-400)**2 + (y-110)**2) < (60 + clearance)**2):
             return True
     return False
+
+# def get_inquality_obstacles(x, y, clearance):
+#     if (x >= (tab_width - clearance)) or (y >= (tab_height - clearance)) or (x <= clearance) or (y <= clearance):
+#             return True
+#     return False
 
 class Node:
     def __init__(self, x, y, parent=None, cost = np.inf):
@@ -57,31 +57,31 @@ class RRT:
 
     def gen_biased_nodes(self, major_axis, focal_dist, origin, rot):
         
-        # if major_axis == float('inf'):
+        if major_axis == float('inf'):
             return self.random_node()
         
-        # x = np.random.random()
-        # y = np.random.random()
+        x = np.random.random()
+        y = np.random.random()
 
-        # minor_axis = [major_axis / 2.0, math.sqrt(abs(major_axis ** 2 - focal_dist ** 2)) / 4.0, 
-        #     math.sqrt(abs(major_axis ** 2 - focal_dist ** 2)) / 4.0]
+        minor_axis = [major_axis / 2.0, math.sqrt(abs(major_axis ** 2 - focal_dist ** 2)) / 4.0, 
+            math.sqrt(abs(major_axis ** 2 - focal_dist ** 2)) / 4.0]
 
-        # r_array = np.array([[minor_axis[0], 0.0, 0.0], 
-        #                     [0.0, minor_axis[1], 0.0], 
-        #                     [0.0, 0.0, minor_axis[2]]])
+        r_array = np.array([[minor_axis[0], 0.0, 0.0], 
+                            [0.0, minor_axis[1], 0.0], 
+                            [0.0, 0.0, minor_axis[2]]])
 
         
-        # new_node = (y * math.cos(2 * math.pi * x / y),
-        #         y * math.sin(2 * math.pi * x / y))
+        new_node = (y * math.cos(2 * math.pi * x / y),
+                y * math.sin(2 * math.pi * x / y))
 
-        # threeD_pt = np.array([[new_node[0]], [new_node[1]], [0]])
+        threeD_pt = np.array([[new_node[0]], [new_node[1]], [0]])
 
-        # term_1 = np.matmul(rot, r_array)
-        # term_2 = np.matmul(term_1, threeD_pt)
+        term_1 = np.matmul(rot, r_array)
+        term_2 = np.matmul(term_1, threeD_pt)
 
-        # new_point = term_2 + origin
+        new_point = term_2 + origin
 
-        # return Node(new_point[0][0], new_point[1][0])
+        return Node(new_point[0][0], new_point[1][0])
     
     def get_path_len(self, path):
         path = np.array(path)
@@ -152,10 +152,10 @@ class RRT:
                 near_node.parent = node
                 near_node.cost = new_cost
                 ## erase
-                #cv2.line(img, (node.x, node.y),(node.parent.x, node.parent.y),(0, 0, 0), 1)
+                cv2.line(img, (node.x, node.y),(node.parent.x, node.parent.y),(0, 0, 0), 1)
 
                 ## draw new
-                #cv2.line(img, (near_node.x, near_node.y),(node.parent.x, node.parent.y),(255, 0, 0), 1)
+                cv2.line(img, (near_node.x, near_node.y),(node.parent.x, node.parent.y),(255, 0, 0), 1)
 
     def func(self, a1):
         orientation_ellipse = math.atan2(a1[1], a1[0])  
@@ -220,7 +220,7 @@ class RRT:
 
                 new_node.parent = nearest_node
                 
-                cv2.line(img, (nearest_node.x, nearest_node.y),(new_node.x, new_node.y),(255, 0, 0), 1)
+                #cv2.line(img, (nearest_node.x, nearest_node.y),(new_node.x, new_node.y),(255, 0, 0), 1)
                 cv2.circle(img, (new_node.x, new_node.y), 1, (0, 0, 255), -1)
                 cv2.imshow("RRT Tree", img)
                 cv2.waitKey(10)
@@ -270,7 +270,7 @@ class RRT:
                             if(get_inquality_obstacles(i,j,self.clearance)):
                                 cv2.circle(img, (i, j), 1, (0, 255, 255), -1)
 
-                    #self.draw_region(img, origin, major_axis, minor_axis, orientation_ellipse)
+                    self.draw_region(img, origin, major_axis, minor_axis, orientation_ellipse)
 
                 if temp_path_len < major_axis:
 
@@ -420,10 +420,10 @@ class RRT:
 
 def IRRT_main():
 
-    start_x = int(150)
+    start_x = int(50)
     start_y = int(100)
 
-    goal_x = int(400)
+    goal_x = int(500)
     goal_y = int(100)
 
     clearance = int(15)
